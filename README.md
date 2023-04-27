@@ -1,7 +1,7 @@
 Google Container Registry Mirror(Google Container Registry镜像加速)
 -------
 
-本仓库参考[anjia0532大佬仓库](https://github.com/anjia0532/gcr.io_mirror)实现
+本仓库基于[anjia0532仓库](https://github.com/anjia0532/gcr.io_mirror)修改实现
 
 Disclaimer/免责声明
 -------
@@ -176,7 +176,7 @@ Copyright and License
 
 This module is licensed under the BSD license.
 
-Copyright (C) 2023-, by AnJia <ty13363959807@gmail.com>.
+Copyright (C) 2023-, by TianYao <ty18710388929@163.com>.
 
 All rights reserved.
 

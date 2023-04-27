@@ -24,11 +24,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RulesFile 读取规则文件路径
 const RulesFile = "rules.yaml"
 
 var (
-	config = &Config{}
-
+	config    = &Config{}
 	resultTpl = `
 {{ if .Success }}
 **转换完成**
@@ -58,6 +58,33 @@ docker images | grep $(echo {{ .OriginImageName }} |awk -F':' '{print $1}')
 `
 )
 
+// Config 用来记录程序执行的配置信息
+type Config struct {
+	GhToken           string            `yaml:"gh_token"`
+	GhUser            string            `yaml:"gh_user"`
+	Repo              string            `yaml:"repo"`
+	Registry          string            `yaml:"registry"`
+	RegistryNamespace string            `yaml:"registry_namespace"`
+	RegistryUserName  string            `yaml:"registry_user_name"`
+	RegistryPassword  string            `yaml:"registry_password"`
+	Rules             map[string]string `yaml:"rules"`
+	RunId             string            `yaml:"run_id"`
+	MaxCount          int               `yaml:"max_count"`
+	RulesFile         string            `yaml:"rules_file"`
+}
+
+// Result 用来记录执行结果
+type Result struct {
+	Success         bool
+	Registry        string
+	RegistryUser    string
+	OriginImageName string
+	TargetImageName string
+	GhUser          string
+	Repo            string
+	RunId           string
+}
+
 func init() {
 	pflag.CommandLine.StringVarP(&config.GhToken, "github.token", "t", "", "Github token.")
 	pflag.CommandLine.StringVarP(&config.GhUser, "github.user", "u", "", "Github Owner.")
@@ -67,14 +94,15 @@ func init() {
 	pflag.CommandLine.StringVarP(&config.RegistryUserName, "docker.user", "a", "", "Docker Registry User.")
 	pflag.CommandLine.StringVarP(&config.RegistryPassword, "docker.secret", "s", "", "Docker Registry Password.")
 	pflag.CommandLine.StringVarP(&config.RunId, "github.run_id", "i", "", "Github Run Id.")
+	pflag.CommandLine.IntVarP(&config.MaxCount, "github.max_count", "m", 1, "max count issue process for one time.")
 	pflag.CommandLine.StringVarP(&config.RulesFile, "rules.file", "c", RulesFile, "rules mapping file")
 }
 
 func main() {
-	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	// 解析参数
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
-	ctx := context.Background()
+
 	// 给一个默认的映射，key=>仓库前缀 value=>推动到docker hub的repository
 	config.Rules = map[string]string{
 		"^gcr.io":          "",
@@ -84,6 +112,7 @@ func main() {
 		"^quay.io":         "quay",
 		"^ghcr.io":         "ghcr",
 	}
+
 	// 从外部文件读取映射关系
 	if rulesFile, err := ioutil.ReadFile(RulesFile); err == nil {
 		rules := make(map[string]string)
@@ -91,14 +120,22 @@ func main() {
 			config.Rules = rules
 		}
 	}
-	// 登录github认证
-	ts := oauth2.StaticTokenSource(
+	// 定义一个全局使用的ctx
+	ctx := context.Background()
+
+	// 初始化github认证客户端
+	githubCli := github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: config.GhToken},
-	)
-	// 初始化认证客户端
-	githubCli := github.NewClient(oauth2.NewClient(ctx, ts))
+	)))
 	// 获取Issue列表
-	issues, err := getIssues(githubCli, ctx, config)
+	issues, _, err := githubCli.Issues.ListByRepo(ctx, config.GhUser, config.Repo, &github.IssueListByRepoOptions{
+		State:     "open",
+		Labels:    []string{"porter"},
+		Sort:      "created",
+		Direction: "desc",
+		// 每次处理的issue数量，暂时只配置一个
+		ListOptions: github.ListOptions{Page: 1, PerPage: config.MaxCount},
+	})
 	if err != nil {
 		fmt.Println("获取Issues列表报错", err.Error())
 		os.Exit(-1)
@@ -195,14 +232,14 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		return errors.New("@" + *issues.GetUser().Login + " 不支持同步带摘要信息的镜像"), originImageName, targetImageName
 	}
 
-	registrys := []string{}
+	registries := make([]string, 0)
 	for k, v := range config.Rules {
 		targetImageName = regexp.MustCompile(k).ReplaceAllString(targetImageName, v)
-		registrys = append(registrys, k)
+		registries = append(registries, k)
 	}
 
 	if strings.EqualFold(targetImageName, originImageName) {
-		return errors.New("@" + *issues.GetUser().Login + " 暂不支持同步" + originImageName + ",目前仅支持同步 `" + strings.Join(registrys, " ,") + "`镜像"), originImageName, targetImageName
+		return errors.New("@" + *issues.GetUser().Login + " 暂不支持同步" + originImageName + ",目前仅支持同步 `" + strings.Join(registries, " ,") + "`镜像"), originImageName, targetImageName
 	}
 
 	targetImageName = strings.ReplaceAll(targetImageName, "/", ".")
@@ -222,21 +259,17 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 	}
 
 	//execCmd("docker", "pull", originImageName)
-	err = dockerPull(originImageName, cli, ctx)
-
-	if err != nil {
+	if err = dockerPull(originImageName, cli, ctx); err != nil {
 		return errors.New("@" + *issues.GetUser().Login + " ,docker pull 报错 `" + err.Error() + "`"), originImageName, targetImageName
 	}
 
 	//execCmd("docker", "tag", originImageName, targetImageName)
-	err = dockerTag(originImageName, targetImageName, cli, ctx)
-	if err != nil {
+	if err = dockerTag(originImageName, targetImageName, cli, ctx); err != nil {
 		return errors.New("@" + *issues.GetUser().Login + " ,docker tag 报错 `" + err.Error() + "`"), originImageName, targetImageName
 	}
 
 	//execCmd("docker", "push", targetImageName)
-	err = dockerPush(targetImageName, cli, ctx, config)
-	if err != nil {
+	if err = dockerPush(targetImageName, cli, ctx, config); err != nil {
 		return errors.New("@" + *issues.GetUser().Login + " ,docker push 报错 `" + err.Error() + "`"), originImageName, targetImageName
 	}
 
@@ -267,8 +300,10 @@ func dockerPull(originImageName string, cli *client.Client, ctx context.Context)
 	if err != nil {
 		return err
 	}
-	defer pullOut.Close()
-	io.Copy(os.Stdout, pullOut)
+	defer func() {
+		_ = pullOut.Close()
+	}()
+	_, _ = io.Copy(os.Stdout, pullOut)
 	return nil
 }
 func dockerTag(originImageName string, targetImageName string, cli *client.Client, ctx context.Context) error {
@@ -297,43 +332,9 @@ func dockerPush(targetImageName string, cli *client.Client, ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer pushOut.Close()
-	io.Copy(os.Stdout, pushOut)
+	defer func() {
+		_ = pushOut.Close()
+	}()
+	_, _ = io.Copy(os.Stdout, pushOut)
 	return nil
-}
-
-type Config struct {
-	GhToken           string            `yaml:"gh_token"`
-	GhUser            string            `yaml:"gh_user"`
-	Repo              string            `yaml:"repo"`
-	Registry          string            `yaml:"registry"`
-	RegistryNamespace string            `yaml:"registry_namespace"`
-	RegistryUserName  string            `yaml:"registry_user_name"`
-	RegistryPassword  string            `yaml:"registry_password"`
-	Rules             map[string]string `yaml:"rules"`
-	RunId             string            `yaml:"run_id"`
-	RulesFile         string            `yaml:"rules_file"`
-}
-type Result struct {
-	Success         bool
-	Registry        string
-	RegistryUser    string
-	OriginImageName string
-	TargetImageName string
-	GhUser          string
-	Repo            string
-	RunId           string
-}
-
-func getIssues(cli *github.Client, ctx context.Context, config *Config) ([]*github.Issue, error) {
-	issues, _, err := cli.Issues.ListByRepo(ctx, config.GhUser, config.Repo, &github.IssueListByRepoOptions{
-		//State: "closed",
-		State:     "open",
-		Labels:    []string{"porter"},
-		Sort:      "created",
-		Direction: "desc",
-		// 防止被滥用，考虑了下，每次还是只允许转一个
-		ListOptions: github.ListOptions{Page: 1, PerPage: 1},
-	})
-	return issues, err
 }
