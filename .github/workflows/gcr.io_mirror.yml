@@ -1,0 +1,79 @@
+name: gcr.io_mirror
+
+on: 
+  issues:
+    types: [opened, edited]
+  label:
+    types: [created]
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'porter')
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+
+      - name: 设置 golang 环境
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+          check-latest: true
+          cache: true
+
+      - name: 运行 go 代码
+        run: go run main.go --github.token=${{ secrets.GITHUB_TOKEN }} --github.user=${{ github.repository_owner }} --github.repo=${{ github.event.repository.name }} --docker.registry=${{ secrets.DOCKER_REGISTRY }} --docker.namespace=${{ secrets.DOCKER_NAMESPACE }} --docker.user=${{ secrets.DOCKER_USER }} --docker.secret=${{ secrets.DOCKER_PASSWORD }} --github.run_id=${{ github.run_id }}
+
+  auto_close_issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: check issues
+        id: check_issues
+        uses: actions/github-script@v3.1.0
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: | 
+            const openIssues = await github.issues.listForRepo({
+                  owner: '${{ github.repository_owner }}',
+                  repo: '${{ github.event.repository.name }}',
+                  state: 'open',
+                  per_page: 100,
+                  sort: "created",
+                  direction: "desc",
+            })
+            
+            if (!Array.isArray(openIssues["data"]) || !openIssues["data"].length) {
+              core.setOutput('SUCCESS', true)
+              return
+            }
+            let validLabels=false
+            for(let issues of openIssues['data']){
+                for(let labels of issues["labels"]){
+                  if(labels["name"]=="porter" || labels["name"]=="question"){
+                    validLabels=true
+                  }
+                }
+                if(validLabels){
+                  continue
+                }
+                await  github.issues.createComment({
+                  owner: '${{ github.repository_owner }}',
+                  repo: '${{ github.event.repository.name }}',
+                  issue_number: issues["number"],
+                  body: "@"+issues["user"]["login"]+" 不是说了嘛，通过模板创建 issues，请通过[此模板](https://github.com/anjia0532/gcr.io_mirror/issues/new?assignees=&labels=porter&template=porter.md&title=%5BPORTER%5D)重新创建，此 issues 将自动关闭"
+                });
+                await github.issues.addLabels({
+                  owner: '${{ github.repository_owner }}',
+                  repo: '${{ github.event.repository.name }}',
+                  issue_number: issues["number"],
+                  labels: ["rude"]
+                });
+              await github.issues.update({
+                owner: '${{ github.repository_owner }}',
+                repo: '${{ github.event.repository.name }}',
+                issue_number: issues["number"],
+                state: 'closed'
+                })
+            }
