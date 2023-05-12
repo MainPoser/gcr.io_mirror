@@ -1,8 +1,6 @@
 Google Container Registry Mirror(Google Container Registry镜像加速)
 -------
 
-本仓库基于[anjia0532仓库](https://github.com/anjia0532/gcr.io_mirror)修改实现
-
 Disclaimer/免责声明
 -------
 本人郑重承诺
@@ -27,7 +25,7 @@ ty13363959807/namespace.{image}:{tag}
 # special / 特别的
 k8s.gcr.io/{image}:{tag} <==> gcr.io/google-containers/{image}:{tag} <==> ty13363959807/google-containers.{image}:{tag}
 
-wget https://raw.githubusercontent.com/ty13363959807/gcr.io_mirror/master/pull-k8s-image.sh
+wget https://raw.githubusercontent.com/ty13363959807/registry_mirror/master/pull-k8s-image.sh
 chmod +x pull-k8s-image.sh
 
 ./pull-k8s-image.sh k8s.gcr.io/federation-controller-manager-arm64:v1.3.1-beta.1
@@ -38,7 +36,7 @@ chmod +x pull-k8s-image.sh
 
 Uses/如何拉取新镜像
 -------
-[创建issues(直接套用模板即可，别自己瞎改labels)](https://github.com/MainPoser/gcr.io_mirror/issues/new?assignees=&labels=porter&template=porter.md&title=%5BPORTER%5D) ,将自动触发 github actions 进行拉取转推到docker hub
+[创建issues(直接套用模板即可，别自己瞎改labels)](https://github.com/MainPoser/registry_mirror/issues/new?assignees=&labels=porter&template=porter.md&title=%5BPORTER%5D) ,将自动触发 github actions 进行拉取转推到docker hub
 
 **注意：**
 
@@ -59,7 +57,7 @@ issues的内容无所谓，可以为空
 Fork/分叉代码自行维护
 -------
 
-- 必须: <https://github.com/ty13363959807/gcr.io_mirror/fork> 点击连接在自己账号下分叉出 `gcr.io_mirror` 项目
+- 必须: <https://github.com/ty13363959807/registry_mirror/fork> 点击连接在自己账号下分叉出 `registry_mirror` 项目
 - 可选: 修改 [./rules.yaml](./rules.yaml) 增加暂未支持的镜像库
 - 在 [./settings/secrets/actions](../../settings/secrets/actions) 创建自己的参数
 
