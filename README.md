@@ -1,6 +1,8 @@
 Google Container Registry Mirror(Google Container Registry镜像加速)
 -------
 
+借鉴了[anjia0532](https://github.com/anjia0532/gcr.io_mirror)仓库部分实现
+
 Disclaimer/免责声明
 -------
 本人郑重承诺
